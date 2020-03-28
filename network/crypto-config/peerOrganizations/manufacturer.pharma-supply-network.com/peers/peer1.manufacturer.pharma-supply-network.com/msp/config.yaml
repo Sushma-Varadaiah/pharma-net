@@ -1,0 +1,8 @@
+NodeOUs:
+  Enable: true
+  ClientOUIdentifier:
+    Certificate: cacerts/ca.manufacturer.pharma-supply-network.com-cert.pem
+    OrganizationalUnitIdentifier: client
+  PeerOUIdentifier:
+    Certificate: cacerts/ca.manufacturer.pharma-supply-network.com-cert.pem
+    OrganizationalUnitIdentifier: peer

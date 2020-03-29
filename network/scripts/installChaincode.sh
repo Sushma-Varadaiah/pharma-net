@@ -35,7 +35,7 @@ echo "Channel name : "$CHANNEL_NAME
 # import utils
 . scripts/utils.sh
 
-## Install new version of chaincode on peer0 of all 3 orgs making them endorsers
+## Install new version of chaincode on peer0 of all 5 orgs making them endorsers
 echo "Installing chaincode on peer0.manufacturer.pharma-supply-network.com ..."
 installChaincode 0 'manufacturer' $VERSION
 echo "Installing chaincode on peer0.distributor.pharma-supply-network.com ..."
@@ -52,7 +52,7 @@ echo "Instantiating chaincode on channel using peer0.manufacturer.pharma-supply-
 instantiateChaincode 0 'manufacturer' $VERSION
 
 echo
-echo "========= All GOOD, Chaincode REGNET Is Now Installed & Instantiated On Registration Network =========== "
+echo "========= All GOOD, Chaincode PHARMANET Is Now Installed & Instantiated On Pharmanet Network =========== "
 echo
 
 echo

@@ -246,7 +246,7 @@ class PharmanetContract extends Contract {
             )
           );
 
-          const generateSellerCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
+          var generateSellerCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
             returnedSellerCompanyName,
             returnedSellerCompanyCRN,
           ]);
@@ -285,7 +285,7 @@ class PharmanetContract extends Contract {
             )
           );
 
-          const generateBuyerCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
+          var generateBuyerCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
             returnedBuyerCompanyName,
             returnedBuyerCompanyCRN,
           ]);
@@ -309,6 +309,23 @@ class PharmanetContract extends Contract {
       if (sellerData.organisationRole === "Distributor") {
         //All Good, Create a purchase request
         console.log("All Good, Create a purchase request");
+        // CRN number of the buyer and Drug Name, along with an appropriate namespace.
+        const poID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.productOrders", [buyerCRN, drugName]);
+
+        //create the drug object to store on the ledger
+        let purchaseOrderObject = {
+          poID: poID,
+          drugName: drugName,
+          quantity: quantity,
+          buyer: generateBuyerCompanyID,
+          seller: generateSellerCompanyID,
+        };
+
+        console.log("purchaseOrderObject created is==> " + purchaseOrderObject);
+
+        let purchaseOrderDataBuffer = Buffer.from(JSON.stringify(purchaseOrderObject));
+        await ctx.stub.putState(poID, purchaseOrderDataBuffer);
+        return purchaseOrderObject;
       } else {
         let returnValue = "Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole;
         console.log("Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole);
@@ -319,6 +336,22 @@ class PharmanetContract extends Contract {
       if (sellerData.organisationRole === "Manufacturer") {
         //All Good, Create a purchase request
         console.log("All Good, Create a purchase request");
+        const poID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.productOrders", [buyerCRN, drugName]);
+
+        //create the drug object to store on the ledger
+        let purchaseOrderObject = {
+          poID: poID,
+          drugName: drugName,
+          quantity: quantity,
+          buyer: generateBuyerCompanyID,
+          seller: generateSellerCompanyID,
+        };
+
+        console.log("purchaseOrderObject created is==> " + purchaseOrderObject);
+
+        let purchaseOrderDataBuffer = Buffer.from(JSON.stringify(purchaseOrderObject));
+        await ctx.stub.putState(poID, purchaseOrderDataBuffer);
+        return purchaseOrderObject;
       } else {
         let returnValue = "Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole;
         console.log("Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole);

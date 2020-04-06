@@ -72,6 +72,7 @@ class PharmanetContract extends Contract {
 
     // Iterate through result set and for each company found.
     while (true) {
+      //To-Do - May have to include a flag
       let responseRange = await companyResultsIterator.next();
       console.log("responseRange=> " + responseRange);
       if (!responseRange || !responseRange.value || !responseRange.value.key) {
@@ -192,6 +193,142 @@ class PharmanetContract extends Contract {
 
     let comapnyBuffer = await ctx.stub.getState(generateCompanyID).catch((err) => console.log(err));
     console.log("comapnyBuffer=> " + comapnyBuffer.toString());
+    let parsedData = JSON.parse(comapnyBuffer.toString());
+    return parsedData;
+  }
+
+  //This function is used to create a Purchase Order (PO) to buy drugs,
+  //by companies belonging to ‘Distributor’ or ‘Retailer’ organisation.
+  //createPO (buyerCRN, sellerCRN, drugName, quantity)
+  async createPO(ctx, buyerCRN, sellerCRN, drugName, quantity) {
+    //Check the initiator of the transaction is ‘Distributor’ or ‘Retailer’
+    let cid = new ClientIdentity(ctx.stub);
+
+    //Uncomment me
+    // let mspID = cid.getMSPID();
+
+    //remove me
+    let mspID = "distributorMSP";
+    console.log(
+      "buyerCRN is=>" + buyerCRN + "sellerCRN=> " + sellerCRN + "drugName=> " + drugName + "quantity=>" + quantity
+    );
+    //Create PO to buy drugs, by the comapnies belonging to "Distributor" or "Retailer" organisation.
+    if ("retailerMSP" !== mspID && "distributorMSP" !== mspID) {
+      return "Sorry! Only Distributor and Retailer can create a purchase request!";
+    } else {
+      // Go ahead and check the hierarchy
+      let sellerCRNResultsIterator = await ctx.stub.getStateByPartialCompositeKey(
+        "org.pharma-network.pharmanet.company",
+        [sellerCRN]
+      );
+
+      var sellerCRNFound = false;
+      while (!sellerCRNFound) {
+        let sellerCRNResponseRange = await sellerCRNResultsIterator.next();
+
+        if (!sellerCRNResponseRange || !sellerCRNResponseRange || !sellerCRNResponseRange.value.key) {
+          return "Invalid Seller CompanyCRN";
+        } else {
+          sellerCRNFound = true;
+          let objectType;
+          let attributes;
+          ({ objectType, attributes } = await ctx.stub.splitCompositeKey(sellerCRNResponseRange.value.key));
+
+          let returnedSellerCompanyName = attributes[0];
+          let returnedSellerCompanyCRN = attributes[1];
+
+          console.info(
+            util.format(
+              "- found a company from namespace:%s companyname:%s companycrn:%s\n",
+              objectType,
+              returnedSellerCompanyName,
+              returnedSellerCompanyCRN
+            )
+          );
+
+          const generateSellerCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
+            returnedSellerCompanyName,
+            returnedSellerCompanyCRN,
+          ]);
+
+          var sellerCompanyBuffer = await ctx.stub.getState(generateSellerCompanyID).catch((err) => console.log(err));
+          console.log("Seller Company Details are=> " + sellerCompanyBuffer.toString());
+        }
+      }
+
+      let buyerCRNResultsIterator = await ctx.stub.getStateByPartialCompositeKey(
+        "org.pharma-network.pharmanet.company",
+        [buyerCRN]
+      );
+
+      var buyerCRNFound = false;
+      while (!buyerCRNFound) {
+        let buyerCRNResponseRange = await buyerCRNResultsIterator.next();
+
+        if (!buyerCRNResponseRange || !buyerCRNResponseRange || !buyerCRNResponseRange.value.key) {
+          return "Invalid Seller CompanyCRN";
+        } else {
+          buyerCRNFound = true;
+          let objectType;
+          let attributes;
+          ({ objectType, attributes } = await ctx.stub.splitCompositeKey(buyerCRNResponseRange.value.key));
+
+          let returnedBuyerCompanyName = attributes[0];
+          let returnedBuyerCompanyCRN = attributes[1];
+
+          console.info(
+            util.format(
+              "- found a company from namespace:%s companyname:%s companycrn:%s\n",
+              objectType,
+              returnedBuyerCompanyName,
+              returnedBuyerCompanyCRN
+            )
+          );
+
+          const generateBuyerCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
+            returnedBuyerCompanyName,
+            returnedBuyerCompanyCRN,
+          ]);
+
+          var buyerCompanyBuffer = await ctx.stub.getState(generateBuyerCompanyID).catch((err) => console.log(err));
+          console.log("Buyer Company Details are=> " + buyerCompanyBuffer.toString());
+        }
+      }
+    }
+
+    console.log("I am the Buyer=> " + buyerCompanyBuffer);
+    console.log("I am the seller=> " + sellerCompanyBuffer);
+    let buyerData = JSON.parse(buyerCompanyBuffer.toString());
+    console.log("buyerData=> " + buyerData);
+    let sellerData = JSON.parse(sellerCompanyBuffer.toString());
+    console.log("sellerData=> " + sellerData.organisationRole);
+
+    //Check hierachy
+    if (buyerData.organisationRole === "Retailer") {
+      console.log("Retailer can purchase only from Distributor");
+      if (sellerData.organisationRole === "Distributor") {
+        //All Good, Create a purchase request
+        console.log("All Good, Create a purchase request");
+      } else {
+        let returnValue = "Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole;
+        console.log("Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole);
+        return returnValue;
+      }
+    } else if (buyerData.organisationRole === "Distributor") {
+      console.log("Distributor can purchase only from Manufacturer");
+      if (sellerData.organisationRole === "Manufacturer") {
+        //All Good, Create a purchase request
+        console.log("All Good, Create a purchase request");
+      } else {
+        let returnValue = "Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole;
+        console.log("Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole);
+        return returnValue;
+      }
+    } else {
+      console.log(buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole);
+      let returnValue = buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole;
+      return returnValue;
+    }
   }
 }
 

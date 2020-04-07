@@ -449,6 +449,7 @@ class PharmanetContract extends Contract {
           //If al the, all valid them are valid then create shippment data model
           //Also update the owner for each drug in the batch
           var validDrugId = true;
+          var listOfCompositeKeysForDrugs = [];
           for (let i = 0; i <= listFromCommandLine.length - 1; i++) {
             if (validDrugId) {
               console.log("This is the drug=> " + listFromCommandLine[i]);
@@ -464,6 +465,7 @@ class PharmanetContract extends Contract {
                 let json = JSON.parse(drugDetailsBuffer.toString());
                 console.log("json" + json);
                 validDrugId = true;
+                listOfCompositeKeysForDrugs.push(productDrugID);
               } catch (err) {
                 validDrugId = false;
                 console.log("Sorry the drug is not registered with the network");
@@ -472,10 +474,74 @@ class PharmanetContract extends Contract {
             }
           }
           console.log("All drugs are valid or not=> " + validDrugId);
+          console.log("Composite Keys of all drugs" + listOfCompositeKeysForDrugs.length);
+          console.log("===These are the composite keys for the drugs which we are shipping===");
+          for (let drugId of listOfCompositeKeysForDrugs) {
+            console.log("CompositeID=> " + drugId);
+          }
           if (validDrugId) {
             console.log("All drugs for the shipment are registered in the network");
             //Create shipment data object and store
 
+            const shipmentID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.shipment", [
+              buyerCRN,
+              drugName,
+            ]);
+            //Transporter compositeKey
+
+            let transporterCRNResultsIterator = await ctx.stub.getStateByPartialCompositeKey(
+              "org.pharma-network.pharmanet.company",
+              [transporterCRN]
+            );
+
+            var transporterCRNFound = false;
+            while (!transporterCRNFound) {
+              let transporterCRNResponseRange = await transporterCRNResultsIterator.next();
+
+              if (
+                !transporterCRNResponseRange ||
+                !transporterCRNResponseRange ||
+                !transporterCRNResponseRange.value.key
+              ) {
+                return "Invalid transporterCRN";
+              } else {
+                transporterCRNFound = true;
+                let objectType;
+                let attributes;
+                ({ objectType, attributes } = await ctx.stub.splitCompositeKey(transporterCRNResponseRange.value.key));
+
+                let returnedTransporterCompanyName = attributes[0];
+                let returnedTransporterCompanyCRN = attributes[1];
+
+                console.info(
+                  util.format(
+                    "- found a company from namespace:%s companyname:%s companycrn:%s\n",
+                    objectType,
+                    returnedTransporterCompanyName,
+                    returnedTransporterCompanyCRN
+                  )
+                );
+
+                var generateTransporterCompanyID = await ctx.stub.createCompositeKey(
+                  "org.pharma-network.pharmanet.company",
+                  [returnedTransporterCompanyName, returnedTransporterCompanyCRN]
+                );
+
+                console.log("Transporter composite key created=> " + generateTransporterCompanyID);
+              }
+            }
+
+            let shipmentObject = {
+              shipmentID: shipmentID,
+              creator: ctx.clientIdentity.getID(),
+              assets: listOfCompositeKeysForDrugs,
+              transporter: generateTransporterCompanyID,
+              status: "in-transit",
+            };
+
+            let shipmentDataBuffer = Buffer.from(JSON.stringify(shipmentObject));
+            await ctx.stub.putState(shipmentID, shipmentDataBuffer);
+            return shipmentObject;
             //Owner of each batch should be updated
           }
         } else {
@@ -491,10 +557,6 @@ class PharmanetContract extends Contract {
         }
       }
     }
-    //2.Check the quantity attribute in PO. and see whether the length of "listAssets" is same as that of PO's quantity attribute
-
-    //3.If it matches proceed ahead
-    //4.
   }
 }
 

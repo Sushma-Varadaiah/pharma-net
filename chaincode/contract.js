@@ -448,6 +448,36 @@ class PharmanetContract extends Contract {
           //Check whether it's valid or not.
           //If al the, all valid them are valid then create shippment data model
           //Also update the owner for each drug in the batch
+          var validDrugId = true;
+          for (let i = 0; i <= listFromCommandLine.length - 1; i++) {
+            if (validDrugId) {
+              console.log("This is the drug=> " + listFromCommandLine[i]);
+              //Using the serialnumber and drugName get the details of the drug.
+              let serialnumberOfTheDrug = listFromCommandLine[i];
+              const productDrugID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [
+                drugName,
+                serialnumberOfTheDrug,
+              ]);
+
+              let drugDetailsBuffer = await ctx.stub.getState(productDrugID).catch((err) => console.log(err));
+              try {
+                let json = JSON.parse(drugDetailsBuffer.toString());
+                console.log("json" + json);
+                validDrugId = true;
+              } catch (err) {
+                validDrugId = false;
+                console.log("Sorry the drug is not registered with the network");
+                return "Sorry the drug is not registered with the network";
+              }
+            }
+          }
+          console.log("All drugs are valid or not=> " + validDrugId);
+          if (validDrugId) {
+            console.log("All drugs for the shipment are registered in the network");
+            //Create shipment data object and store
+
+            //Owner of each batch should be updated
+          }
         } else {
           console.log(
             "listOfAssetsLength is " +

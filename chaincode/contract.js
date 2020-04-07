@@ -363,6 +363,109 @@ class PharmanetContract extends Contract {
       return returnValue;
     }
   }
+
+  //createShipment (buyerCRN, drugName, listOfAssets, transporterCRN )
+  // After the buyer invokes the createPO transaction, seller invokes createShipment
+  // Using this transaction seller will transport the consignment via a transporter to each PO
+  async createShipment(ctx, buyerCRN, drugName, listOfAssets, transporterCRN) {
+    console.log("Inside create shipment");
+    let listFromCommandLine = listOfAssets.split(",");
+    // for (let i = 0; i <= listOfAssets.length - 1; i++) {
+    //   if (listOfAssets[i] !== ",") {
+    //     listFromCommandLine.push(listOfAssets[i]);
+    //   }
+    // }
+
+    console.log("listOfAssets passed from the function is=> " + listFromCommandLine);
+    console.log("listOfAssets passed from the function length is=> " + listFromCommandLine.length);
+    let listOfAssetsLength = listFromCommandLine.length;
+    //Validation-1
+    // The length of "listOfAssets" should be exactly equal to the quantity specified in the PO.
+
+    //Get the PO associated with the buyerCRN
+    let buyerCRNResultsIterator = await ctx.stub.getStateByPartialCompositeKey(
+      "org.pharma-network.pharmanet.productOrders",
+      [buyerCRN]
+    );
+
+    var buyerCRNFound = false;
+    while (!buyerCRNFound) {
+      let buyerCRNResponseRange = await buyerCRNResultsIterator.next();
+
+      console.log("buyerCRNResponseRange=> " + buyerCRNResponseRange);
+      if (!buyerCRNResponseRange || !buyerCRNResponseRange || !buyerCRNResponseRange.value.key) {
+        return "Invalid Buyer CompanyCRN";
+      } else {
+        buyerCRNFound = true;
+        let objectType;
+        let attributes;
+        ({ objectType, attributes } = await ctx.stub.splitCompositeKey(buyerCRNResponseRange.value.key));
+
+        let returnedBuyerCRN = attributes[0];
+        let returnedBuyerDrugName = attributes[1];
+
+        console.log("returnedBuyerCRN=> " + returnedBuyerCRN);
+        console.log("returnedBuyerDrugName=> " + returnedBuyerDrugName);
+
+        //From buyerCRN and drugName get the purchase order associated with that buyer
+
+        let generatePOID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.productOrders", [
+          returnedBuyerCRN,
+          returnedBuyerDrugName,
+        ]);
+
+        console.log("Re generated PoID is=> " + generatePOID);
+
+        //Get the purchase order
+        let buyerPurchaseBuffer = await ctx.stub.getState(generatePOID).catch((err) => console.log(err));
+        console.log("Buyer purchase Order details are=> " + buyerPurchaseBuffer.toString());
+        let parsedPurchaseOrder = JSON.parse(buyerPurchaseBuffer.toString());
+        console.log(
+          "Purchase order details are====> drugName=>" +
+            parsedPurchaseOrder.drugName +
+            " Quantity=> " +
+            parsedPurchaseOrder.quantity +
+            "buyer=> " +
+            parsedPurchaseOrder.buyer +
+            "seller=> " +
+            parsedPurchaseOrder.seller
+        );
+        //Check Validation 1.
+        if (listOfAssetsLength == parsedPurchaseOrder.quantity) {
+          console.log(
+            "listOfAssetsLength is " +
+              listOfAssetsLength +
+              " and " +
+              "parsedPurchaseOrder.quantity " +
+              parsedPurchaseOrder.quantity +
+              " length matches"
+          );
+          console.log("Proceed!");
+          //Check Validation 2
+          //The IDs of the asset should be valid ID which are registered on the network.
+          //Have drugName and drug serial number.
+          //Search for each drug in the drug,get the drug details of each of the drug
+          //Check whether it's valid or not.
+          //If al the, all valid them are valid then create shippment data model
+          //Also update the owner for each drug in the batch
+        } else {
+          console.log(
+            "listOfAssetsLength is " +
+              listOfAssetsLength +
+              " and " +
+              "parsedPurchaseOrder.quantity " +
+              parsedPurchaseOrder.quantity +
+              " length DOES NOT matches"
+          );
+          console.log("Sorry! Can'tProceed!");
+        }
+      }
+    }
+    //2.Check the quantity attribute in PO. and see whether the length of "listAssets" is same as that of PO's quantity attribute
+
+    //3.If it matches proceed ahead
+    //4.
+  }
 }
 
 module.exports = PharmanetContract;

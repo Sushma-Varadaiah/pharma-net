@@ -197,6 +197,18 @@ class PharmanetContract extends Contract {
     return parsedData;
   }
 
+  //Remove this function-NOT FOR SUBMISSION
+  async getDrugDetails(ctx, drugName, serialnumberOfTheDrug) {
+    const productDrugID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [
+      drugName,
+      serialnumberOfTheDrug,
+    ]);
+
+    let drugDetailsBuffer = await ctx.stub.getState(productDrugID).catch((err) => console.log(err));
+    let drugDetailsData = JSON.parse(drugDetailsBuffer.toString());
+    return drugDetailsData;
+  }
+
   //This function is used to create a Purchase Order (PO) to buy drugs,
   //by companies belonging to ‘Distributor’ or ‘Retailer’ organisation.
   //createPO (buyerCRN, sellerCRN, drugName, quantity)
@@ -370,11 +382,6 @@ class PharmanetContract extends Contract {
   async createShipment(ctx, buyerCRN, drugName, listOfAssets, transporterCRN) {
     console.log("Inside create shipment");
     let listFromCommandLine = listOfAssets.split(",");
-    // for (let i = 0; i <= listOfAssets.length - 1; i++) {
-    //   if (listOfAssets[i] !== ",") {
-    //     listFromCommandLine.push(listOfAssets[i]);
-    //   }
-    // }
 
     console.log("listOfAssets passed from the function is=> " + listFromCommandLine);
     console.log("listOfAssets passed from the function length is=> " + listFromCommandLine.length);
@@ -541,8 +548,23 @@ class PharmanetContract extends Contract {
 
             let shipmentDataBuffer = Buffer.from(JSON.stringify(shipmentObject));
             await ctx.stub.putState(shipmentID, shipmentDataBuffer);
-            return shipmentObject;
+
             //Owner of each batch should be updated
+            for (let i = 0; i <= listOfCompositeKeysForDrugs.length - 1; i++) {
+              //Find the drug details using composite key
+              let drugCompositeKey = listOfCompositeKeysForDrugs[i];
+              let drugDataBuffer = await ctx.stub.getState(drugCompositeKey).catch((err) => console.log(err));
+              let jsonDrugDetail = JSON.parse(drugDataBuffer.toString());
+              console.log("jsonDrugDetail=> " + jsonDrugDetail.owner);
+              console.log("jsonDrugDetail=> " + jsonDrugDetail.manufacturer);
+              //Owner is now transporter, so transporter composite key is the owner
+              jsonDrugDetail.owner = generateTransporterCompanyID;
+
+              //Once you have updated the owner of the drug put the state back to the drug
+              let drugJSONdate = Buffer.from(JSON.stringify(jsonDrugDetail));
+              await ctx.stub.putState(drugCompositeKey, drugJSONdate);
+            }
+            return shipmentObject;
           }
         } else {
           console.log(
@@ -556,6 +578,62 @@ class PharmanetContract extends Contract {
           console.log("Sorry! Can'tProceed!");
         }
       }
+    }
+  }
+
+  //This transaction is used to update the status of the shipment to "Delivered" when consignment gets delivered to the destination
+  // async updateShipment(ctx, buyerCRN, drugName, transporterCRN) {
+  async updateShipment(ctx, buyerCRN, drugName, transporterCRN) {
+    //Validation1 - Should be invoked only by the transporter of the shipment
+    //Using transporterCRN get shipmentObject object. If the shipmentObject exists then it's a valid transporter else he is not valid transporter
+    let transporterResultsIterator = await ctx.stub.getStateByPartialCompositeKey(
+      "org.pharma-network.pharmanet.company",
+      [transporterCRN]
+    );
+
+    let transporterResponseRange = await transporterResultsIterator.next();
+    console.log("responseRange=> " + transporterResponseRange);
+    if (!transporterResponseRange || !transporterResponseRange || !transporterResponseRange.value.key) {
+      return "Invalid transporterCRN";
+    }
+    console.log("ResponseRange.value.key=>" + transporterResponseRange.value.key);
+
+    let objectType;
+    let attributes;
+    ({ objectType, attributes } = await ctx.stub.splitCompositeKey(transporterResponseRange.value.key));
+
+    let transportForUpdateShipmentName = attributes[1];
+    let transportForUpdateShipmentCRN = attributes[0];
+
+    //create transporter composite key
+    var generateTransporterForShipmentUpdation = await ctx.stub.createCompositeKey(
+      "org.pharma-network.pharmanet.company",
+      [transportForUpdateShipmentCRN, transportForUpdateShipmentName]
+    );
+
+    console.log("this is the generated transporter composite key=>" + generateTransporterForShipmentUpdation);
+
+    if (transportForUpdateShipmentCRN === transporterCRN) {
+      console.log("Registered transporter");
+      //create the composite key of the shipment using buyerCRN and drugName
+      let generatedShipmentCompositeKey = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.shipment", [
+        buyerCRN,
+        drugName,
+      ]);
+
+      let shipmentDataBuffer = await ctx.stub.getState(generatedShipmentCompositeKey).catch((err) => console.log(err));
+      console.log("This is the shipment details" + shipmentDataBuffer);
+      let a = JSON.parse(shipmentDataBuffer.toString());
+      console.log("transporter composite key what sin shipment=> " + a.transporter);
+      console.log("generated transporter=>" + generateTransporterForShipmentUpdation);
+      if (a.transporter === generateTransporterForShipmentUpdation) {
+        console.log("All good!transporter match");
+
+        //status of the shipment changed to delivered.
+      }
+      return JSON.parse(shipmentDataBuffer.toString());
+    } else {
+      console.log("Transporter is not registered to the network");
     }
   }
 }

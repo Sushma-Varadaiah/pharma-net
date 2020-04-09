@@ -10,8 +10,6 @@ class PharmanetContract extends Contract {
     super("org.pharma-network.pharmanet");
   }
 
-  /* ****** All custom functions are defined below ***** */
-
   // This is a basic user defined function used at the time of instantiating the smart contract
   // to print the success message on console
   async instantiate(ctx) {
@@ -131,15 +129,13 @@ class PharmanetContract extends Contract {
         await ctx.stub.putState(productID, drugDataBuffer);
         return drugObject;
       } else {
-        //isManufacturer = false;
-        return "No one can add a drug but Manufacturer.";
         console.log("No. Not a a Manufacturer");
+        return "No one can add a drug but Manufacturer.";
       }
     }
   }
 
   async viewDrugCurrentState(ctx, drugName, serialNo) {
-    //Visible for all network participants
     const productID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [drugName, serialNo]);
     console.log("ProductID is=> " + productID);
     let drugDataBuffer = await ctx.stub.getState(productID).catch((err) => console.log(err));
@@ -181,15 +177,17 @@ class PharmanetContract extends Contract {
     let attributes;
     ({ objectType, attributes } = await ctx.stub.splitCompositeKey(responseRange.value.key));
 
-    let returnedCompanyName = attributes[0];
-    let returnedCompanyCRN = attributes[1];
+    let returnedCompanyCRN = attributes[0];
+    console.log("returnedCompanyCRN=> " + returnedCompanyCRN);
+    let returnedCompanyName = attributes[1];
+    console.log("returnedCompanyName=> " + returnedCompanyName);
 
     const generateCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
-      returnedCompanyName,
       returnedCompanyCRN,
+      returnedCompanyName,
     ]);
 
-    console.log("generated company ID is=> " + generateCompanyID);
+    console.log("generated company ID is=> " + JSON.stringify(generateCompanyID));
 
     let comapnyBuffer = await ctx.stub.getState(generateCompanyID).catch((err) => console.log(err));
     console.log("comapnyBuffer=> " + comapnyBuffer.toString());
@@ -197,17 +195,17 @@ class PharmanetContract extends Contract {
     return parsedData;
   }
 
-  //Remove this function-NOT FOR SUBMISSION
-  async getDrugDetails(ctx, drugName, serialnumberOfTheDrug) {
-    const productDrugID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [
-      drugName,
-      serialnumberOfTheDrug,
-    ]);
+  // //Remove this function-NOT FOR SUBMISSION
+  // async getDrugDetails(ctx, drugName, serialnumberOfTheDrug) {
+  //   const productDrugID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [
+  //     drugName,
+  //     serialnumberOfTheDrug,
+  //   ]);
 
-    let drugDetailsBuffer = await ctx.stub.getState(productDrugID).catch((err) => console.log(err));
-    let drugDetailsData = JSON.parse(drugDetailsBuffer.toString());
-    return drugDetailsData;
-  }
+  //   let drugDetailsBuffer = await ctx.stub.getState(productDrugID).catch((err) => console.log(err));
+  //   let drugDetailsData = JSON.parse(drugDetailsBuffer.toString());
+  //   return drugDetailsData;
+  // }
 
   //This function is used to create a Purchase Order (PO) to buy drugs,
   //by companies belonging to ‘Distributor’ or ‘Retailer’ organisation.
@@ -581,6 +579,18 @@ class PharmanetContract extends Contract {
     }
   }
 
+  //Remove this function-NOT FOR SUBMISSION
+  async getShipmentDetails(ctx, buyerCRN, drugName) {
+    const shipmentCompositeKeyID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.shipment", [
+      buyerCRN,
+      drugName,
+    ]);
+
+    let shipmentDetailsBuffer = await ctx.stub.getState(shipmentCompositeKeyID).catch((err) => console.log(err));
+    let shipmentJSONData = JSON.parse(shipmentDetailsBuffer.toString());
+    return shipmentJSONData;
+  }
+
   //This transaction is used to update the status of the shipment to "Delivered" when consignment gets delivered to the destination
   // async updateShipment(ctx, buyerCRN, drugName, transporterCRN) {
   async updateShipment(ctx, buyerCRN, drugName, transporterCRN) {
@@ -623,18 +633,88 @@ class PharmanetContract extends Contract {
 
       let shipmentDataBuffer = await ctx.stub.getState(generatedShipmentCompositeKey).catch((err) => console.log(err));
       console.log("This is the shipment details" + shipmentDataBuffer);
-      let a = JSON.parse(shipmentDataBuffer.toString());
-      console.log("transporter composite key what sin shipment=> " + a.transporter);
+      let parsedShipmentData = JSON.parse(shipmentDataBuffer.toString());
+      console.log("transporter composite key what sin shipment=> " + parsedShipmentData.transporter);
       console.log("generated transporter=>" + generateTransporterForShipmentUpdation);
-      if (a.transporter === generateTransporterForShipmentUpdation) {
+      if (parsedShipmentData.transporter === generateTransporterForShipmentUpdation) {
         console.log("All good!transporter match");
 
         //status of the shipment changed to delivered.
+        parsedShipmentData.status = "delivered";
+
+        //Once you have updated the owner of the drug put the state back to the drug
+        let statusChangeShipmentBuffer = Buffer.from(JSON.stringify(parsedShipmentData));
+        //Wait untill you get the successfully delivered response, then display. Else the status will be in still "in-transit"
+        await ctx.stub.putState(generatedShipmentCompositeKey, statusChangeShipmentBuffer);
+        console.log("Shipment object's status has been changed");
+
+        //shipment field in the add drug method should be changed.
+        //shipment field will have a value "generatedShipmentCompositeKey"-vmpharmaParacematamol
+
+        //Iterate through the drug list in the shipment and
+        let drugsInShipment = parsedShipmentData.assets;
+        for (let i = 0; i <= drugsInShipment.length - 1; i++) {
+          console.log(drugsInShipment[i]);
+          let drugCompositeKeyID = drugsInShipment[i];
+
+          //For each drug get the drugObject and update the shipment with
+
+          //The below is the drug object for which you have to change the shipemnt field with the composite key generatedShipmentCompositeKey
+
+          //change the owner of the drug - buyerCRN
+          console.log("drugCompositeKeyID is=> " + drugCompositeKeyID);
+          let drugDataFromAddDrugBuffer = await ctx.stub.getState(drugCompositeKeyID).catch((err) => console.log(err));
+          let JSONDrugDetailsForUpdation = JSON.parse(drugDataFromAddDrugBuffer.toString());
+
+          console.log("JSONDrugDetailsForUpdation=>" + JSONDrugDetailsForUpdation);
+          console.log("The shipment field for " + drugCompositeKeyID + " is " + JSONDrugDetailsForUpdation.shipment);
+          console.log("The owner field for " + drugCompositeKeyID + " is " + JSONDrugDetailsForUpdation.owner);
+
+          //To-DO-Update the owner and shipping, Owner should be the composite key of buyer not CRN
+          JSONDrugDetailsForUpdation.owner = buyerCRN;
+          JSONDrugDetailsForUpdation.shipment = generatedShipmentCompositeKey;
+
+          //Once you have updated the owner of the drug put the state back to the drug
+          let modifiedDrugDetailsObject = Buffer.from(JSON.stringify(JSONDrugDetailsForUpdation));
+          await ctx.stub.putState(drugCompositeKeyID, modifiedDrugDetailsObject);
+        }
       }
       return JSON.parse(shipmentDataBuffer.toString());
     } else {
       console.log("Transporter is not registered to the network");
     }
+  }
+
+  //This transaction is called by the retailer while selling the drug to a consumer
+  async retailDrug(ctx, drugName, serialNo, retailerCRN, customerAadhar) {
+    //Validation1 - Should be invoked only by retailer, who is the owner of the drug
+    //check retailerCRN is equal to the owner of the drug in drug object
+    const drugCompositeKeyForSearch = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [
+      drugName,
+      serialNo,
+    ]);
+    let drugCompositeKeyForSearchBuffer = await ctx.stub
+      .getState(drugCompositeKeyForSearch)
+      .catch((err) => console.log(err));
+    let JSONDrugCompositeKeyForSearch = JSON.parse(drugCompositeKeyForSearchBuffer.toString());
+    console.log("This is the data of the drug customer is trying to buy" + JSONDrugCompositeKeyForSearch);
+    console.log("Owner of the drug that user is asking for=> " + JSONDrugCompositeKeyForSearch.owner);
+    console.log("The retailer is => " + retailerCRN);
+
+    if (JSONDrugCompositeKeyForSearch.owner === retailerCRN) {
+      console.log("Yes he is the owner of the drug");
+      //To-DO-Update the owner not CRN but composite key
+      JSONDrugCompositeKeyForSearch.owner = customerAadhar;
+
+      //Once you have updated the owner of the drug put the state back to the drug
+      let modifiedDrugDetailsObjectForCustomer = Buffer.from(JSON.stringify(JSONDrugCompositeKeyForSearch));
+      await ctx.stub.putState(drugCompositeKeyForSearch, modifiedDrugDetailsObjectForCustomer);
+    } else {
+      console.log("Sorry you are not the owner of this drug");
+    }
+
+    //ownership of the drug is changed to the adhar number of the customer
+    //change owner in drugobject to and put the state of the drug in drugobject
   }
 }
 

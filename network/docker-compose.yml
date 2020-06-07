@@ -1,4 +1,4 @@
-version: '2'
+version: "2"
 
 volumes:
   orderer.pharma-supply-network.com:
@@ -17,7 +17,6 @@ networks:
   pharma-network:
 
 services:
-
   ca.consumer.pharma-supply-network.com:
     image: hyperledger/fabric-ca:latest
     dns_search: .
@@ -110,7 +109,7 @@ services:
 
   orderer.pharma-supply-network.com:
     extends:
-      file:   docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: orderer.pharma-supply-network.com
     container_name: orderer.pharma-supply-network.com
     networks:
@@ -119,7 +118,7 @@ services:
   peer0.consumer.pharma-supply-network.com:
     container_name: peer0.consumer.pharma-supply-network.com
     extends:
-      file:  docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: peer0.consumer.pharma-supply-network.com
     networks:
       - pharma-network
@@ -127,7 +126,7 @@ services:
   peer1.consumer.pharma-supply-network.com:
     container_name: peer1.consumer.pharma-supply-network.com
     extends:
-      file:  docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: peer1.consumer.pharma-supply-network.com
     networks:
       - pharma-network
@@ -135,7 +134,7 @@ services:
   peer0.distributor.pharma-supply-network.com:
     container_name: peer0.distributor.pharma-supply-network.com
     extends:
-      file:  docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: peer0.distributor.pharma-supply-network.com
     networks:
       - pharma-network
@@ -143,7 +142,7 @@ services:
   peer1.distributor.pharma-supply-network.com:
     container_name: peer1.distributor.pharma-supply-network.com
     extends:
-      file:  docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: peer1.distributor.pharma-supply-network.com
     networks:
       - pharma-network
@@ -151,15 +150,15 @@ services:
   peer0.manufacturer.pharma-supply-network.com:
     container_name: peer0.manufacturer.pharma-supply-network.com
     extends:
-      file:  docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: peer0.manufacturer.pharma-supply-network.com
     networks:
       - pharma-network
-     
+
   peer1.manufacturer.pharma-supply-network.com:
     container_name: peer1.manufacturer.pharma-supply-network.com
     extends:
-      file:  docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: peer1.manufacturer.pharma-supply-network.com
     networks:
       - pharma-network
@@ -167,15 +166,15 @@ services:
   peer0.retailer.pharma-supply-network.com:
     container_name: peer0.retailer.pharma-supply-network.com
     extends:
-      file:  docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: peer0.retailer.pharma-supply-network.com
     networks:
       - pharma-network
-     
+
   peer1.retailer.pharma-supply-network.com:
     container_name: peer1.retailer.pharma-supply-network.com
     extends:
-      file:  docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: peer1.retailer.pharma-supply-network.com
     networks:
       - pharma-network
@@ -183,15 +182,15 @@ services:
   peer0.transporter.pharma-supply-network.com:
     container_name: peer0.transporter.pharma-supply-network.com
     extends:
-      file:  docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: peer0.transporter.pharma-supply-network.com
     networks:
       - pharma-network
-     
+
   peer1.transporter.pharma-supply-network.com:
     container_name: peer1.transporter.pharma-supply-network.com
     extends:
-      file:  docker-base/docker-compose-base.yaml
+      file: docker-base/docker-compose-base.yaml
       service: peer1.transporter.pharma-supply-network.com
     networks:
       - pharma-network

@@ -1,10 +1,12 @@
 "use strict";
 
+// Importing the necessary packages
 const { Contract } = require("fabric-contract-api");
 const ClientIdentity = require("fabric-shim").ClientIdentity;
 const util = require("util");
 
 class PharmanetContract extends Contract {
+  // Default constructor method
   constructor() {
     // Provide a custom name to refer to this smart contract
     super("org.pharma-network.pharmanet");
@@ -16,6 +18,12 @@ class PharmanetContract extends Contract {
     console.log("Pharmanet Smart Contract Instantiated Super successful");
   }
 
+  // Used to register the company with the network
+  // @params companyCRN - unique CRN for each company
+  //         companyName - Name of the company
+  //         location - Location of the company
+  //         organisationRole - Has 4 values (Manufacturer, Distributor, Retailer, Transporter)
+  // @return companyObject
   async registerCompany(ctx, companyCRN, companyName, location, organisationRole) {
     console.log("Registering the company " + companyName);
 
@@ -24,9 +32,11 @@ class PharmanetContract extends Contract {
 
     console.log("MSPID of the transaction initiator is=> " + mspID);
 
+    // All participants other than consumer can register the company
     if ("consumerMSP" !== mspID) {
       const companyID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [companyCRN, companyName]);
 
+      //Check for the role and assaign hierarchyKey accordingly
       if (
         organisationRole !== "Manufacturer" &&
         organisationRole !== "Distributor" &&
@@ -45,6 +55,7 @@ class PharmanetContract extends Contract {
         } else if (organisationRole === "Transporter") {
           hierarchyKey = "";
         }
+
         let companyObject = {
           companyID: companyID,
           name: companyName,
@@ -56,160 +67,231 @@ class PharmanetContract extends Contract {
 
         let companyDataBuffer = Buffer.from(JSON.stringify(companyObject));
         await ctx.stub.putState(companyID, companyDataBuffer);
+
         return companyObject;
       }
     }
   }
 
+  // Used by organisation registered as a 'manufacturer' to register new drug on the ledger
+  // @params drugName - Name of the drug
+  //         serialNo - serial number of the drug
+  //         mfgDate - Date of manufacturer of the drug
+  //         expDate - Expiry date of the drug
+  //         companyCRN - Unique CRN number of the manufacturer
+  //@returns drugObject that's saved to the ledger
   async addDrug(ctx, drugName, serialNo, mfgDate, expDate, companyCRN) {
-    console.info(" Add Drug ", drugName, serialNo, mfgDate, expDate, companyCRN);
-
     let companyResultsIterator = await ctx.stub.getStateByPartialCompositeKey("org.pharma-network.pharmanet.company", [
       companyCRN,
     ]);
 
     // Iterate through result set and for each company found.
-    while (true) {
-      //To-Do - May have to include a flag
+    var manufacturerFound = false;
+    while (!manufacturerFound) {
       let responseRange = await companyResultsIterator.next();
-      console.log("responseRange=> " + responseRange);
+
       if (!responseRange || !responseRange.value || !responseRange.value.key) {
         return "Invalid companyCRN";
       }
-      console.log("ResponseRange.value.key=>" + responseRange.value.key);
 
+      manufacturerFound = true;
       let objectType;
       let attributes;
       ({ objectType, attributes } = await ctx.stub.splitCompositeKey(responseRange.value.key));
 
-      let returnedCompanyName = attributes[0];
-      let returnedCompanyCRN = attributes[1];
+      let returnedCompanyName = attributes[1];
+      let returnedCompanyCRN = attributes[0];
 
-      // index:org.pharma-network.pharmanet.company namespace:CRN1 companyname:Digi
-      console.info(
-        util.format(
-          "- found a company from namespace:%s companyname:%s companycrn:%s\n",
-          objectType,
-          returnedCompanyName,
-          returnedCompanyCRN
-        )
-      );
+      //generate key of the drug owner
+      const generateKeyDrugOwner = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
+        returnedCompanyCRN,
+        returnedCompanyName,
+      ]);
 
       let cid = new ClientIdentity(ctx.stub);
       let mspID = cid.getMSPID();
 
-      console.log("MSPID of the transaction initiator is=> " + mspID);
-
-      //let isManufacturer = false;
-
       if ("manufacturerMSP" === mspID) {
-        //isManufacturer = true;
-        console.log("yes he is a manufacturer");
-
         const productID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [drugName, serialNo]);
-
-        // const manufacturerId = ctx.clientIdentity.getID();
-        // console.log("manufacturerId is=> " + manufacturerId.toString());
-        // const manufactureID = ctx.stub.createCompositeKey([manufacturerId]);
 
         //create the drug object to store on the ledger
         let drugObject = {
           productID: productID,
           name: drugName,
-          manufacturer: ctx.clientIdentity.getID(),
+          manufacturer: generateKeyDrugOwner,
           manufacturingDate: mfgDate,
           expiryDate: expDate,
-          owner: ctx.clientIdentity.getID(),
+          owner: generateKeyDrugOwner,
           shipment: "",
         };
-
-        console.log("drugObject created is==> " + drugObject);
 
         let drugDataBuffer = Buffer.from(JSON.stringify(drugObject));
         await ctx.stub.putState(productID, drugDataBuffer);
         return drugObject;
       } else {
-        console.log("No. Not a a Manufacturer");
         return "No one can add a drug but Manufacturer.";
       }
     }
   }
 
-  async viewDrugCurrentState(ctx, drugName, serialNo) {
-    const productID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [drugName, serialNo]);
-    console.log("ProductID is=> " + productID);
-    let drugDataBuffer = await ctx.stub.getState(productID).catch((err) => console.log(err));
-    return JSON.parse(drugDataBuffer.toString());
-  }
+  // Used to create a Purchase Order (PO) to buy drugs by companies belonging to ‘Distributor’ or ‘Retailer’ organisation.
+  // @params buyerCRN - drug buyers CRN
+  //         sellerCRN - drug sellers CRN
+  //         drugName - name of the drug
+  //         quantity - quantity of the drug
+  // @returns purchaseOrderObject - purchase order created
+  // async createPO(ctx, buyerCRN, sellerCRN, drugName, quantity) {
+  //   //Check the initiator of the transaction is ‘Distributor’ or ‘Retailer’
+  //   let cid = new ClientIdentity(ctx.stub);
 
-  async viewHistory(ctx, drugName, serialNo) {
-    const productID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [drugName, serialNo]);
-    console.info("getting history for key: " + productID);
-    let iterator = await ctx.stub.getHistoryForKey(productID);
-    let result = [];
-    let res = await iterator.next();
-    while (!res.done) {
-      if (res.value) {
-        console.info(`found state update with value: ${res.value.value.toString("utf8")}`);
-        const obj = JSON.parse(res.value.value.toString("utf8"));
-        result.push(obj);
-      }
-      res = await iterator.next();
-    }
-    await iterator.close();
-    return result;
-  }
+  //   //Uncomment me
+  //   //let mspID = cid.getMSPID();
 
-  //Remove this function-NOT FOR SUBMISSION
-  async getCompanyDetails(ctx, companyCRN) {
-    let companyResultsIterator = await ctx.stub.getStateByPartialCompositeKey("org.pharma-network.pharmanet.company", [
-      companyCRN,
-    ]);
+  //   //remove me
+  //   let mspID = "distributorMSP";
+  //   console.log(
+  //     "buyerCRN is=>" + buyerCRN + "sellerCRN=> " + sellerCRN + "drugName=> " + drugName + "quantity=>" + quantity
+  //   );
+  //   //Create PO to buy drugs, by the comapnies belonging to "Distributor" or "Retailer" organisation.
+  //   if ("retailerMSP" !== mspID && "distributorMSP" !== mspID) {
+  //     return "Sorry! Only Distributor and Retailer can create a purchase request!";
+  //   } else {
+  //     // Go ahead and check the hierarchy
+  //     let sellerCRNResultsIterator = await ctx.stub.getStateByPartialCompositeKey(
+  //       "org.pharma-network.pharmanet.company",
+  //       [sellerCRN]
+  //     );
 
-    let responseRange = await companyResultsIterator.next();
-    console.log("responseRange=> " + responseRange);
-    if (!responseRange || !responseRange.value || !responseRange.value.key) {
-      return "Invalid companyCRN";
-    }
-    console.log("ResponseRange.value.key=>" + responseRange.value.key);
+  //     var sellerCRNFound = false;
+  //     while (!sellerCRNFound) {
+  //       let sellerCRNResponseRange = await sellerCRNResultsIterator.next();
 
-    let objectType;
-    let attributes;
-    ({ objectType, attributes } = await ctx.stub.splitCompositeKey(responseRange.value.key));
+  //       if (!sellerCRNResponseRange || !sellerCRNResponseRange || !sellerCRNResponseRange.value.key) {
+  //         return "Invalid Seller CompanyCRN";
+  //       } else {
+  //         sellerCRNFound = true;
+  //         let objectType;
+  //         let attributes;
+  //         ({ objectType, attributes } = await ctx.stub.splitCompositeKey(sellerCRNResponseRange.value.key));
 
-    let returnedCompanyCRN = attributes[0];
-    console.log("returnedCompanyCRN=> " + returnedCompanyCRN);
-    let returnedCompanyName = attributes[1];
-    console.log("returnedCompanyName=> " + returnedCompanyName);
+  //         let returnedSellerCompanyName = attributes[1];
+  //         let returnedSellerCompanyCRN = attributes[0];
 
-    const generateCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
-      returnedCompanyCRN,
-      returnedCompanyName,
-    ]);
+  //         console.log("returnedSellerCompanyName=> " + returnedSellerCompanyName);
+  //         console.log("returnedSellerCompanyCRN=> " + returnedSellerCompanyCRN);
 
-    console.log("generated company ID is=> " + JSON.stringify(generateCompanyID));
+  //         var generateSellerCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
+  //           returnedSellerCompanyCRN,
+  //           returnedSellerCompanyName,
+  //         ]);
 
-    let comapnyBuffer = await ctx.stub.getState(generateCompanyID).catch((err) => console.log(err));
-    console.log("comapnyBuffer=> " + comapnyBuffer.toString());
-    let parsedData = JSON.parse(comapnyBuffer.toString());
-    return parsedData;
-  }
+  //         var sellerCompanyBuffer = await ctx.stub.getState(generateSellerCompanyID).catch((err) => console.log(err));
+  //         console.log("Seller Company Details are=> " + sellerCompanyBuffer.toString());
+  //       }
+  //     }
 
-  // //Remove this function-NOT FOR SUBMISSION
-  // async getDrugDetails(ctx, drugName, serialnumberOfTheDrug) {
-  //   const productDrugID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [
-  //     drugName,
-  //     serialnumberOfTheDrug,
-  //   ]);
+  //     let buyerCRNResultsIterator = await ctx.stub.getStateByPartialCompositeKey(
+  //       "org.pharma-network.pharmanet.company",
+  //       [buyerCRN]
+  //     );
 
-  //   let drugDetailsBuffer = await ctx.stub.getState(productDrugID).catch((err) => console.log(err));
-  //   let drugDetailsData = JSON.parse(drugDetailsBuffer.toString());
-  //   return drugDetailsData;
+  //     var buyerCRNFound = false;
+  //     while (!buyerCRNFound) {
+  //       let buyerCRNResponseRange = await buyerCRNResultsIterator.next();
+
+  //       if (!buyerCRNResponseRange || !buyerCRNResponseRange || !buyerCRNResponseRange.value.key) {
+  //         return "Invalid Seller CompanyCRN";
+  //       } else {
+  //         buyerCRNFound = true;
+  //         let objectType;
+  //         let attributes;
+  //         ({ objectType, attributes } = await ctx.stub.splitCompositeKey(buyerCRNResponseRange.value.key));
+
+  //         let returnedBuyerCompanyName = attributes[1];
+  //         let returnedBuyerCompanyCRN = attributes[0];
+
+  //         console.log("returnedBuyerCompanyName=> " + returnedBuyerCompanyName);
+  //         console.log("returnedBuyerCompanyCRN=> " + returnedBuyerCompanyCRN);
+
+  //         var generateBuyerCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
+  //           returnedBuyerCompanyCRN,
+  //           returnedBuyerCompanyName,
+  //         ]);
+
+  //         var buyerCompanyBuffer = await ctx.stub.getState(generateBuyerCompanyID).catch((err) => console.log(err));
+  //         console.log("Buyer Company Details are=> " + buyerCompanyBuffer.toString());
+  //       }
+  //     }
+  //   }
+
+  //   console.log("I am the Buyer=> " + buyerCompanyBuffer);
+  //   console.log("I am the seller=> " + sellerCompanyBuffer);
+  //   let buyerData = JSON.parse(buyerCompanyBuffer.toString());
+  //   console.log("buyerData=> " + buyerData);
+  //   let sellerData = JSON.parse(sellerCompanyBuffer.toString());
+  //   console.log("sellerData=> " + sellerData.organisationRole);
+
+  //   //Check hierachy
+  //   if (buyerData.organisationRole === "Retailer") {
+  //     console.log("Retailer can purchase only from Distributor");
+  //     if (sellerData.organisationRole === "Distributor") {
+  //       //All Good, Create a purchase request
+  //       console.log("All Good, Create a purchase request");
+  //       // CRN number of the buyer and Drug Name, along with an appropriate namespace.
+  //       const poID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.productOrders", [buyerCRN, drugName]);
+
+  //       //create the drug object to store on the ledger
+  //       let purchaseOrderObject = {
+  //         poID: poID,
+  //         drugName: drugName,
+  //         quantity: quantity,
+  //         buyer: generateBuyerCompanyID,
+  //         seller: generateSellerCompanyID,
+  //       };
+
+  //       console.log("purchaseOrderObject created is==> " + purchaseOrderObject);
+
+  //       let purchaseOrderDataBuffer = Buffer.from(JSON.stringify(purchaseOrderObject));
+  //       await ctx.stub.putState(poID, purchaseOrderDataBuffer);
+  //       return purchaseOrderObject;
+  //     } else {
+  //       let returnValue = "Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole;
+  //       console.log("Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole);
+  //       return returnValue;
+  //     }
+  //   } else if (buyerData.organisationRole === "Distributor") {
+  //     console.log("Distributor can purchase only from Manufacturer");
+  //     if (sellerData.organisationRole === "Manufacturer") {
+  //       //All Good, Create a purchase request
+  //       console.log("All Good, Create a purchase request");
+  //       const poID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.productOrders", [buyerCRN, drugName]);
+
+  //       //create the drug object to store on the ledger
+  //       let purchaseOrderObject = {
+  //         poID: poID,
+  //         drugName: drugName,
+  //         quantity: quantity,
+  //         buyer: generateBuyerCompanyID,
+  //         seller: generateSellerCompanyID,
+  //       };
+
+  //       console.log("purchaseOrderObject created is==> " + purchaseOrderObject);
+
+  //       let purchaseOrderDataBuffer = Buffer.from(JSON.stringify(purchaseOrderObject));
+  //       await ctx.stub.putState(poID, purchaseOrderDataBuffer);
+  //       return purchaseOrderObject;
+  //     } else {
+  //       let returnValue = "Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole;
+  //       console.log("Sorry!" + buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole);
+  //       return returnValue;
+  //     }
+  //   } else {
+  //     console.log(buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole);
+  //     let returnValue = buyerData.organisationRole + " can't purchase from " + sellerData.organisationRole;
+  //     return returnValue;
+  //   }
   // }
 
-  //This function is used to create a Purchase Order (PO) to buy drugs,
-  //by companies belonging to ‘Distributor’ or ‘Retailer’ organisation.
-  //createPO (buyerCRN, sellerCRN, drugName, quantity)
   async createPO(ctx, buyerCRN, sellerCRN, drugName, quantity) {
     //Check the initiator of the transaction is ‘Distributor’ or ‘Retailer’
     let cid = new ClientIdentity(ctx.stub);
@@ -374,18 +456,15 @@ class PharmanetContract extends Contract {
     }
   }
 
-  //createShipment (buyerCRN, drugName, listOfAssets, transporterCRN )
-  // After the buyer invokes the createPO transaction, seller invokes createShipment
-  // Using this transaction seller will transport the consignment via a transporter to each PO
+  // Seller invokes to transport the consignment via a transporter corresponding to each PO.
+  // @params buyerCRN - Drug's buyer CRN
+  //         drugName - Name of the drug
+  //         listOfAssets - list of drug
+  //         transporterCRN - CRN of the transporter who delivers the drug
+  // @returns shipmentObject - in response to the Purchase order
   async createShipment(ctx, buyerCRN, drugName, listOfAssets, transporterCRN) {
-    console.log("Inside create shipment");
     let listFromCommandLine = listOfAssets.split(",");
-
-    console.log("listOfAssets passed from the function is=> " + listFromCommandLine);
-    console.log("listOfAssets passed from the function length is=> " + listFromCommandLine.length);
     let listOfAssetsLength = listFromCommandLine.length;
-    //Validation-1
-    // The length of "listOfAssets" should be exactly equal to the quantity specified in the PO.
 
     //Get the PO associated with the buyerCRN
     let buyerCRNResultsIterator = await ctx.stub.getStateByPartialCompositeKey(
@@ -397,7 +476,6 @@ class PharmanetContract extends Contract {
     while (!buyerCRNFound) {
       let buyerCRNResponseRange = await buyerCRNResultsIterator.next();
 
-      console.log("buyerCRNResponseRange=> " + buyerCRNResponseRange);
       if (!buyerCRNResponseRange || !buyerCRNResponseRange || !buyerCRNResponseRange.value.key) {
         return "Invalid Buyer CompanyCRN";
       } else {
@@ -409,55 +487,24 @@ class PharmanetContract extends Contract {
         let returnedBuyerCRN = attributes[0];
         let returnedBuyerDrugName = attributes[1];
 
-        console.log("returnedBuyerCRN=> " + returnedBuyerCRN);
-        console.log("returnedBuyerDrugName=> " + returnedBuyerDrugName);
-
         //From buyerCRN and drugName get the purchase order associated with that buyer
-
         let generatePOID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.productOrders", [
           returnedBuyerCRN,
           returnedBuyerDrugName,
         ]);
 
-        console.log("Re generated PoID is=> " + generatePOID);
-
         //Get the purchase order
         let buyerPurchaseBuffer = await ctx.stub.getState(generatePOID).catch((err) => console.log(err));
-        console.log("Buyer purchase Order details are=> " + buyerPurchaseBuffer.toString());
         let parsedPurchaseOrder = JSON.parse(buyerPurchaseBuffer.toString());
-        console.log(
-          "Purchase order details are====> drugName=>" +
-            parsedPurchaseOrder.drugName +
-            " Quantity=> " +
-            parsedPurchaseOrder.quantity +
-            "buyer=> " +
-            parsedPurchaseOrder.buyer +
-            "seller=> " +
-            parsedPurchaseOrder.seller
-        );
-        //Check Validation 1.
+
+        //Check Validation 1-listOfAssets should be exactly equal to the quantity speified in the PO
         if (listOfAssetsLength == parsedPurchaseOrder.quantity) {
-          console.log(
-            "listOfAssetsLength is " +
-              listOfAssetsLength +
-              " and " +
-              "parsedPurchaseOrder.quantity " +
-              parsedPurchaseOrder.quantity +
-              " length matches"
-          );
-          console.log("Proceed!");
           //Check Validation 2
           //The IDs of the asset should be valid ID which are registered on the network.
-          //Have drugName and drug serial number.
-          //Search for each drug in the drug,get the drug details of each of the drug
-          //Check whether it's valid or not.
-          //If al the, all valid them are valid then create shippment data model
-          //Also update the owner for each drug in the batch
           var validDrugId = true;
           var listOfCompositeKeysForDrugs = [];
           for (let i = 0; i <= listFromCommandLine.length - 1; i++) {
             if (validDrugId) {
-              console.log("This is the drug=> " + listFromCommandLine[i]);
               //Using the serialnumber and drugName get the details of the drug.
               let serialnumberOfTheDrug = listFromCommandLine[i];
               const productDrugID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [
@@ -468,32 +515,21 @@ class PharmanetContract extends Contract {
               let drugDetailsBuffer = await ctx.stub.getState(productDrugID).catch((err) => console.log(err));
               try {
                 let json = JSON.parse(drugDetailsBuffer.toString());
-                console.log("json" + json);
                 validDrugId = true;
                 listOfCompositeKeysForDrugs.push(productDrugID);
               } catch (err) {
                 validDrugId = false;
-                console.log("Sorry the drug is not registered with the network");
                 return "Sorry the drug is not registered with the network";
               }
             }
           }
-          console.log("All drugs are valid or not=> " + validDrugId);
-          console.log("Composite Keys of all drugs" + listOfCompositeKeysForDrugs.length);
-          console.log("===These are the composite keys for the drugs which we are shipping===");
-          for (let drugId of listOfCompositeKeysForDrugs) {
-            console.log("CompositeID=> " + drugId);
-          }
           if (validDrugId) {
-            console.log("All drugs for the shipment are registered in the network");
-            //Create shipment data object and store
-
             const shipmentID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.shipment", [
               buyerCRN,
               drugName,
             ]);
-            //Transporter compositeKey
 
+            //Transporter compositeKey
             let transporterCRNResultsIterator = await ctx.stub.getStateByPartialCompositeKey(
               "org.pharma-network.pharmanet.company",
               [transporterCRN]
@@ -515,27 +551,22 @@ class PharmanetContract extends Contract {
                 let attributes;
                 ({ objectType, attributes } = await ctx.stub.splitCompositeKey(transporterCRNResponseRange.value.key));
 
-                let returnedTransporterCompanyName = attributes[0];
-                let returnedTransporterCompanyCRN = attributes[1];
+                let returnedTransporterCompanyName = attributes[1];
+                let returnedTransporterCompanyCRN = attributes[0];
 
-                console.info(
-                  util.format(
-                    "- found a company from namespace:%s companyname:%s companycrn:%s\n",
-                    objectType,
-                    returnedTransporterCompanyName,
-                    returnedTransporterCompanyCRN
-                  )
-                );
+                console.log("returnedTransporterCompanyName=> " + returnedTransporterCompanyName);
+                console.log("returnedTransporterCompanyCRN=> " + returnedTransporterCompanyCRN);
 
                 var generateTransporterCompanyID = await ctx.stub.createCompositeKey(
                   "org.pharma-network.pharmanet.company",
-                  [returnedTransporterCompanyName, returnedTransporterCompanyCRN]
+                  [returnedTransporterCompanyCRN, returnedTransporterCompanyName]
                 );
 
                 console.log("Transporter composite key created=> " + generateTransporterCompanyID);
               }
             }
 
+            //Update the status as "in-transit"
             let shipmentObject = {
               shipmentID: shipmentID,
               creator: ctx.clientIdentity.getID(),
@@ -577,18 +608,6 @@ class PharmanetContract extends Contract {
         }
       }
     }
-  }
-
-  //Remove this function-NOT FOR SUBMISSION
-  async getShipmentDetails(ctx, buyerCRN, drugName) {
-    const shipmentCompositeKeyID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.shipment", [
-      buyerCRN,
-      drugName,
-    ]);
-
-    let shipmentDetailsBuffer = await ctx.stub.getState(shipmentCompositeKeyID).catch((err) => console.log(err));
-    let shipmentJSONData = JSON.parse(shipmentDetailsBuffer.toString());
-    return shipmentJSONData;
   }
 
   //This transaction is used to update the status of the shipment to "Delivered" when consignment gets delivered to the destination
@@ -651,6 +670,44 @@ class PharmanetContract extends Contract {
         //shipment field in the add drug method should be changed.
         //shipment field will have a value "generatedShipmentCompositeKey"-vmpharmaParacematamol
 
+        //Buyer compositeKey
+        let buyerCRNResultsIteratorForOwner = await ctx.stub.getStateByPartialCompositeKey(
+          "org.pharma-network.pharmanet.company",
+          [buyerCRN]
+        );
+
+        var buyerCRNFoundForOwner = false;
+        while (!buyerCRNFoundForOwner) {
+          let buyerCRNFoundForOwnerResponseRange = await buyerCRNResultsIteratorForOwner.next();
+
+          if (
+            !buyerCRNFoundForOwnerResponseRange ||
+            !buyerCRNFoundForOwnerResponseRange ||
+            !buyerCRNFoundForOwnerResponseRange.value.key
+          ) {
+            return "Invalid transporterCRN";
+          } else {
+            buyerCRNFoundForOwner = true;
+            let objectType;
+            let attributes;
+            ({ objectType, attributes } = await ctx.stub.splitCompositeKey(
+              buyerCRNFoundForOwnerResponseRange.value.key
+            ));
+
+            let returnedBuyerCompanyNameForOwner = attributes[1];
+            let returnedBuyerCompanyCRNForOwner = attributes[0];
+
+            console.log("returnedBuyerCompanyNameForOwner=> " + returnedBuyerCompanyNameForOwner);
+            console.log("returnedBuyerCompanyCRNForOwner=> " + returnedBuyerCompanyCRNForOwner);
+
+            var generateBuyerCompanyIDForOwner = await ctx.stub.createCompositeKey(
+              "org.pharma-network.pharmanet.company",
+              [returnedBuyerCompanyCRNForOwner, returnedBuyerCompanyNameForOwner]
+            );
+
+            console.log("Transporter composite key created=> " + generateBuyerCompanyIDForOwner);
+          }
+        }
         //Iterate through the drug list in the shipment and
         let drugsInShipment = parsedShipmentData.assets;
         for (let i = 0; i <= drugsInShipment.length - 1; i++) {
@@ -671,12 +728,13 @@ class PharmanetContract extends Contract {
           console.log("The owner field for " + drugCompositeKeyID + " is " + JSONDrugDetailsForUpdation.owner);
 
           //To-DO-Update the owner and shipping, Owner should be the composite key of buyer not CRN
-          JSONDrugDetailsForUpdation.owner = buyerCRN;
+          JSONDrugDetailsForUpdation.owner = generateBuyerCompanyIDForOwner;
           JSONDrugDetailsForUpdation.shipment = generatedShipmentCompositeKey;
 
           //Once you have updated the owner of the drug put the state back to the drug
           let modifiedDrugDetailsObject = Buffer.from(JSON.stringify(JSONDrugDetailsForUpdation));
           await ctx.stub.putState(drugCompositeKeyID, modifiedDrugDetailsObject);
+          return modifiedDrugDetailsObject;
         }
       }
       return JSON.parse(shipmentDataBuffer.toString());
@@ -697,11 +755,52 @@ class PharmanetContract extends Contract {
       .getState(drugCompositeKeyForSearch)
       .catch((err) => console.log(err));
     let JSONDrugCompositeKeyForSearch = JSON.parse(drugCompositeKeyForSearchBuffer.toString());
-    console.log("This is the data of the drug customer is trying to buy" + JSONDrugCompositeKeyForSearch);
-    console.log("Owner of the drug that user is asking for=> " + JSONDrugCompositeKeyForSearch.owner);
-    console.log("The retailer is => " + retailerCRN);
 
-    if (JSONDrugCompositeKeyForSearch.owner === retailerCRN) {
+    //Find retailers composite key
+    console.log("JSONDrugCompositeKeyForSearch.owner=> " + JSONDrugCompositeKeyForSearch.owner);
+    console.log("retailerCRN=> " + retailerCRN);
+
+    //Buyer compositeKey
+    let retailerCRNResultsIteratorForComparision = await ctx.stub.getStateByPartialCompositeKey(
+      "org.pharma-network.pharmanet.company",
+      [retailerCRN]
+    );
+
+    var retailerCRNFoundForComparision = false;
+    while (!retailerCRNFoundForComparision) {
+      let retailerCRNResultsIteratorForComparisionResponseRange = await retailerCRNResultsIteratorForComparision.next();
+
+      if (
+        !retailerCRNResultsIteratorForComparisionResponseRange ||
+        !retailerCRNResultsIteratorForComparisionResponseRange ||
+        !retailerCRNResultsIteratorForComparisionResponseRange.value.key
+      ) {
+        return "Invalid transporterCRN";
+      } else {
+        retailerCRNFoundForComparision = true;
+        let objectType;
+        let attributes;
+        ({ objectType, attributes } = await ctx.stub.splitCompositeKey(
+          retailerCRNResultsIteratorForComparisionResponseRange.value.key
+        ));
+
+        let returnedRetailerCompanyNameForComparision = attributes[1];
+        let returnedRetailerCompanyCRNForComparision = attributes[0];
+
+        console.log("returnedBuyerCompanyNameForOwner=> " + returnedRetailerCompanyNameForComparision);
+        console.log("returnedRetailerCompanyCRNForComparision=> " + returnedRetailerCompanyCRNForComparision);
+
+        var generateRetailerCompanyIDForOwner = await ctx.stub.createCompositeKey(
+          "org.pharma-network.pharmanet.company",
+          [returnedRetailerCompanyCRNForComparision, returnedRetailerCompanyNameForComparision]
+        );
+
+        console.log("A=> " + generateRetailerCompanyIDForOwner);
+        console.log("B=> " + JSONDrugCompositeKeyForSearch.owner);
+      }
+    }
+
+    if (JSONDrugCompositeKeyForSearch.owner === generateRetailerCompanyIDForOwner) {
       console.log("Yes he is the owner of the drug");
       //To-DO-Update the owner not CRN but composite key
       JSONDrugCompositeKeyForSearch.owner = customerAadhar;
@@ -709,12 +808,92 @@ class PharmanetContract extends Contract {
       //Once you have updated the owner of the drug put the state back to the drug
       let modifiedDrugDetailsObjectForCustomer = Buffer.from(JSON.stringify(JSONDrugCompositeKeyForSearch));
       await ctx.stub.putState(drugCompositeKeyForSearch, modifiedDrugDetailsObjectForCustomer);
+      console.log("Hello" + JSONDrugCompositeKeyForSearch);
+      return JSONDrugCompositeKeyForSearch;
     } else {
       console.log("Sorry you are not the owner of this drug");
     }
 
     //ownership of the drug is changed to the adhar number of the customer
     //change owner in drugobject to and put the state of the drug in drugobject
+  }
+
+  // Used to view the current state of the drug asset.
+  // @params drugName - Name of the drug
+  //         serialNo - Serial number of the drug
+  // @returns drugJSON - current state of the drug
+  async viewDrugCurrentState(ctx, drugName, serialNo) {
+    const productID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [drugName, serialNo]);
+    let drugDataBuffer = await ctx.stub.getState(productID).catch((err) => console.log(err));
+    return JSON.parse(drugDataBuffer.toString());
+  }
+
+  // Used to view the lifecycle of the product by fetching trasactions from blockchain
+  // @params drugName - name of the drug
+  //         serialNo - serial number of the drug
+  // @returns result - Transaction history of the drug
+  async viewHistory(ctx, drugName, serialNo) {
+    const productID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.drug", [drugName, serialNo]);
+
+    let iterator = await ctx.stub.getHistoryForKey(productID);
+    let result = [];
+    let res = await iterator.next();
+    while (!res.done) {
+      if (res.value) {
+        const obj = JSON.parse(res.value.value.toString("utf8"));
+        result.push(obj);
+      }
+      res = await iterator.next();
+    }
+    await iterator.close();
+    return result;
+  }
+
+  //NOT FOR SUBMISSION - Just for better understanding
+  async getCompanyDetails(ctx, companyCRN) {
+    let companyResultsIterator = await ctx.stub.getStateByPartialCompositeKey("org.pharma-network.pharmanet.company", [
+      companyCRN,
+    ]);
+
+    let responseRange = await companyResultsIterator.next();
+    console.log("responseRange=> " + responseRange);
+    if (!responseRange || !responseRange.value || !responseRange.value.key) {
+      return "Invalid companyCRN";
+    }
+    console.log("ResponseRange.value.key=>" + responseRange.value.key);
+
+    let objectType;
+    let attributes;
+    ({ objectType, attributes } = await ctx.stub.splitCompositeKey(responseRange.value.key));
+
+    let returnedCompanyCRN = attributes[0];
+    console.log("returnedCompanyCRN=> " + returnedCompanyCRN);
+    let returnedCompanyName = attributes[1];
+    console.log("returnedCompanyName=> " + returnedCompanyName);
+
+    const generateCompanyID = await ctx.stub.createCompositeKey("org.pharma-network.pharmanet.company", [
+      returnedCompanyCRN,
+      returnedCompanyName,
+    ]);
+
+    console.log("generated company ID is=> " + JSON.stringify(generateCompanyID));
+
+    let comapnyBuffer = await ctx.stub.getState(generateCompanyID).catch((err) => console.log(err));
+    console.log("comapnyBuffer=> " + comapnyBuffer.toString());
+    let parsedData = JSON.parse(comapnyBuffer.toString());
+    return parsedData;
+  }
+
+  //NOT FOR SUBMISSION - Just for better understanding
+  async getShipmentDetails(ctx, buyerCRN, drugName) {
+    const shipmentCompositeKeyID = ctx.stub.createCompositeKey("org.pharma-network.pharmanet.shipment", [
+      buyerCRN,
+      drugName,
+    ]);
+
+    let shipmentDetailsBuffer = await ctx.stub.getState(shipmentCompositeKeyID).catch((err) => console.log(err));
+    let shipmentJSONData = JSON.parse(shipmentDetailsBuffer.toString());
+    return shipmentJSONData;
   }
 }
 
